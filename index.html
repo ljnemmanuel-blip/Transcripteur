@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>Transcripteur vocal</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#1f6feb">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Transcripteur">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<style>
+:root{--bg:#f6f7f9;--card:#fff;--fg:#14181f;--mut:#5b6573;--bd:#dde1e7;--ac:#1f6feb;--acfg:#fff;--rec:#e5484d;
+box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root{color-scheme:dark;--bg:#0f1318;--card:#181e26;--fg:#e8ecf1;--mut:#9aa5b3;--bd:#2a323d;--ac:#4c8dff;--acfg:#0b0f14;--rec:#ff6369}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+main{max-width:720px;margin:0 auto;padding:16px}
+h1{font-size:20px;margin:4px 0 14px}
+.card{background:var(--card);border:1px solid var(--bd);border-radius:14px;padding:14px;margin-bottom:14px}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+select,button,textarea{font:inherit;color:var(--fg)}
+select{background:var(--bg);border:1px solid var(--bd);border-radius:8px;padding:8px}
+button,a.btn{border:1px solid var(--bd);background:var(--bg);border-radius:10px;padding:10px 14px;cursor:pointer;text-decoration:none;color:var(--fg);display:inline-block}
+button.pri{background:var(--ac);color:var(--acfg);border-color:var(--ac);font-weight:600}
+#mic{width:84px;height:84px;border-radius:50%;font-size:34px;padding:0;background:var(--ac);color:var(--acfg);border:0;flex:none}
+#mic.on{background:var(--rec);animation:p 1.2s infinite}
+@keyframes p{0%{box-shadow:0 0 0 0 color-mix(in srgb,var(--rec) 50%,transparent)}100%{box-shadow:0 0 0 18px transparent}}
+#st{color:var(--mut);font-size:14px}
+textarea{width:100%;min-height:200px;border:1px solid var(--bd);border-radius:10px;background:var(--bg);padding:10px;resize:vertical}
+h2{font-size:16px;margin:0 0 8px}
+.interim{color:var(--mut);font-style:italic;min-height:1.5em;font-size:15px}
+.hint{color:var(--mut);font-size:13px}
+#install{display:none}
+</style>
+</head>
+<body>
+<main>
+<h1>🎙️ Transcripteur vocal</h1>
+
+<div class="card">
+  <div class="row">
+    <button id="mic" aria-label="Démarrer ou arrêter l’enregistrement">🎙️</button>
+    <div style="flex:1;min-width:160px">
+      <div id="st">Appuyez sur le micro pour démarrer.</div>
+      <div class="row" style="margin-top:8px">
+        <select id="lang" aria-label="Langue">
+          <option value="fr-FR">Français</option>
+          <option value="en-US">English</option>
+          <option value="es-ES">Español</option>
+          <option value="de-DE">Deutsch</option>
+          <option value="it-IT">Italiano</option>
+        </select>
+        <button id="install">Installer l’app</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <h2>Transcription</h2>
+  <textarea id="txt" placeholder="Le texte apparaîtra ici. Vous pouvez le corriger à la main."></textarea>
+  <div class="interim" id="interim"></div>
+  <div class="row" style="margin-top:8px">
+    <button id="copy">Copier</button>
+    <button id="dl">Enregistrer .txt</button>
+    <button id="clr">Effacer</button>
+  </div>
+</div>
+
+<div class="card">
+  <h2>Synthèse avec Claude</h2>
+  <p class="hint" style="margin-top:0">Appuyez sur le premier bouton : le texte et la consigne de synthèse sont copiés. Ouvrez ensuite Claude et collez.</p>
+  <div class="row">
+    <button class="pri" id="cp">1. Copier pour Claude</button>
+    <a class="btn" id="open" href="https://claude.ai/new" target="_blank" rel="noopener">2. Ouvrir Claude</a>
+  </div>
+</div>
+
+<p class="hint">Transcription : reconnaissance vocale de votre navigateur (Chrome recommandé). Rien n’est envoyé à un serveur de cette application, qui n’en utilise aucun.</p>
+</main>
+
+<script>
+const $=id=>document.getElementById(id);
+const txt=$('txt'),st=$('st'),mic=$('mic'),interim=$('interim');
+let rec=null,on=false,SR=window.SpeechRecognition||window.webkitSpeechRecognition,deferred=null;
+
+// Sauvegarde automatique du texte
+try{txt.value=localStorage.getItem('transcription')||''}catch(e){}
+txt.addEventListener('input',()=>{try{localStorage.setItem('transcription',txt.value)}catch(e){}});
+
+// Service worker (installation + hors ligne pour l’interface)
+if('serviceWorker' in navigator){window.addEventListener('load',()=>navigator.serviceWorker.register('sw.js').catch(()=>{}))}
+window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();deferred=e;$('install').style.display='inline-block'});
+$('install').onclick=async()=>{if(!deferred)return;deferred.prompt();await deferred.userChoice;deferred=null;$('install').style.display='none'};
+
+function setSt(t){st.textContent=t}
+function save(){try{localStorage.setItem('transcription',txt.value)}catch(e){}}
+function append(s){
+  s=s.trim();if(!s)return;
+  const v=txt.value;
+  txt.value=(v&&!/\s$/.test(v)?v+' ':v)+s;
+  txt.scrollTop=txt.scrollHeight;save();
+}
+function build(){
+  rec=new SR();
+  rec.lang=$('lang').value;rec.continuous=true;rec.interimResults=true;
+  rec.onresult=e=>{
+    let tmp='';
+    for(let i=e.resultIndex;i<e.results.length;i++){
+      const r=e.results[i];
+      if(r.isFinal)append(r[0].transcript);else tmp+=r[0].transcript;
+    }
+    interim.textContent=tmp;
+  };
+  rec.onerror=e=>{
+    if(e.error==='not-allowed'||e.error==='service-not-allowed'){
+      on=false;stop();setSt('Accès au micro refusé. Appuyez sur le cadenas à côté de l’adresse, puis Autorisations, puis Micro.');
+    }else if(e.error==='audio-capture'){on=false;stop();setSt('Aucun micro détecté.');}
+  };
+  rec.onend=()=>{ if(on){try{rec.start()}catch(e){}} };
+}
+function start(){
+  if(!SR){setSt('Reconnaissance vocale non disponible sur ce navigateur. Essayez Chrome.');return;}
+  build();
+  try{rec.start();on=true;mic.classList.add('on');mic.textContent='⏹️';setSt('Écoute en cours… parlez.');}
+  catch(e){setSt('Impossible de démarrer : '+e.message)}
+}
+function stop(){
+  on=false;mic.classList.remove('on');mic.textContent='🎙️';interim.textContent='';
+  try{rec&&rec.stop()}catch(e){}
+  if(!/refusé|détecté/.test(st.textContent))setSt('Arrêté. Vous pouvez relancer ou copier le texte.');
+}
+mic.onclick=()=>on?stop():start();
+$('lang').onchange=()=>{if(on){stop();setTimeout(start,300)}};
+
+async function copyText(t){
+  try{await navigator.clipboard.writeText(t);return true}
+  catch(e){const a=document.createElement('textarea');a.value=t;document.body.appendChild(a);a.select();const ok=document.execCommand('copy');a.remove();return ok}
+}
+$('copy').onclick=async()=>setSt(await copyText(txt.value)?'Texte copié.':'Copie impossible.');
+$('clr').onclick=()=>{if(!txt.value||confirm('Effacer la transcription ?')){txt.value='';save()}};
+$('dl').onclick=()=>{
+  if(!txt.value.trim())return;
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(new Blob([txt.value],{type:'text/plain'}));
+  a.download='transcription.txt';a.click();
+};
+$('cp').onclick=async()=>{
+  const t=txt.value.trim();
+  if(!t){setSt('Aucun texte à copier.');return}
+  const prompt="Voici la transcription brute d’un enregistrement audio (elle peut contenir des erreurs de reconnaissance). Rédige dans la même langue que le texte :\n1) Un résumé en 3 à 5 phrases.\n2) Les points clés (liste à puces).\n3) Les décisions et actions à mener, s’il y en a (sinon écris « Aucune »).\nSois fidèle au contenu, n’invente rien.\n\nTranscription :\n"+t;
+  setSt(await copyText(prompt)?'Copié. Ouvrez Claude et collez le texte.':'Copie impossible.');
+};
+
+if(!SR)setSt('Reconnaissance vocale non disponible sur ce navigateur. Essayez Chrome.');
+</script>
+</body>
+</html>

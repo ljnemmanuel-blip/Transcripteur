@@ -1,0 +1,15 @@
+{
+  "name": "Transcripteur vocal",
+  "short_name": "Transcripteur",
+  "description": "Dictée vocale avec transcription et préparation de synthèse",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#0f1318",
+  "theme_color": "#1f6feb",
+  "lang": "fr",
+  "icons": [
+    {"src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable"},
+    {"src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable"}
+  ]
+}
